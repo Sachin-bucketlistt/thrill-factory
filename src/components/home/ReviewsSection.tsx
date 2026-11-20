@@ -1,0 +1,387 @@
+'use client';
+
+import React, { useEffect, useRef, useState } from 'react';
+import Image from 'next/image';
+import { ChevronLeft, ChevronRight, Star, X } from 'lucide-react';
+import { REVIEWS_DATA } from '@/data/reviews';
+import { SectionHeader } from '@/components/common/SectionHeader';
+import { ThemeButton } from '@/components/common/ThemeButton';
+import './ReviewsSection.css';
+
+const GOOGLE_REVIEWS_URL = 'https://maps.google.com/?cid=12848188791482064085';
+
+const GoogleGLogo = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
+    <path
+      fill="#4285F4"
+      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+    />
+    <path
+      fill="#34A853"
+      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+    />
+    <path
+      fill="#FBBC05"
+      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+    />
+    <path
+      fill="#EA4335"
+      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+    />
+  </svg>
+);
+
+const getInitials = (name: string) =>
+  name
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => part[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+
+const MOBILE_AUTOPLAY_MQ = '(max-width: 768px)';
+const MOBILE_AUTOPLAY_MS = 3000;
+
+export const ReviewsSection: React.FC = () => {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const touchStartX = useRef(0);
+  const pausedRef = useRef(false);
+  const lightboxRef = useRef<string | null>(null);
+  const [offset, setOffset] = useState(0);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [lightbox, setLightbox] = useState<{ photos: string[]; index: number } | null>(null);
+
+  lightboxRef.current = lightbox ? 'open' : null;
+
+  const lightboxSrc = lightbox?.photos[lightbox.index] ?? null;
+
+  const stepLightbox = (direction: number) => {
+    setLightbox((current) => {
+      if (!current || current.photos.length < 2) return current;
+      const count = current.photos.length;
+      const index = (current.index + direction + count) % count;
+      return { ...current, index };
+    });
+  };
+
+  const getStep = () => {
+    const root = scrollerRef.current;
+    const card = root?.querySelector<HTMLElement>('.review-card');
+    const track = root?.querySelector<HTMLElement>('.reviews-track');
+    if (!card || !track) return 0;
+    const gap = Number.parseFloat(getComputedStyle(track).columnGap || getComputedStyle(track).gap) || 20;
+    return card.offsetWidth + gap;
+  };
+
+  const getMaxOffset = () => {
+    const root = scrollerRef.current;
+    const track = root?.querySelector<HTMLElement>('.reviews-track');
+    if (!root || !track) return 0;
+    return Math.max(0, track.scrollWidth - root.clientWidth);
+  };
+
+  const scrollCards = (direction: number) => {
+    const step = getStep();
+    const max = getMaxOffset();
+    setOffset((prev) => Math.max(0, Math.min(max, prev + direction * step)));
+  };
+
+  useEffect(() => {
+    if (!lightbox) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setLightbox(null);
+      if (event.key === 'ArrowRight') stepLightbox(1);
+      if (event.key === 'ArrowLeft') stepLightbox(-1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [lightbox]);
+
+  useEffect(() => {
+    const onResize = () => {
+      setOffset((prev) => Math.max(0, Math.min(getMaxOffset(), prev)));
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  useEffect(() => {
+    const mobile = window.matchMedia(MOBILE_AUTOPLAY_MQ);
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let timer = 0;
+
+    const stop = () => {
+      if (timer) {
+        window.clearInterval(timer);
+        timer = 0;
+      }
+    };
+
+    const tick = () => {
+      if (pausedRef.current || lightboxRef.current || document.hidden) return;
+      const step = getStep();
+      const max = getMaxOffset();
+      if (step <= 0 || max <= 0) return;
+      setOffset((prev) => {
+        const next = prev + step;
+        return next > max + 1 ? 0 : Math.min(max, next);
+      });
+    };
+
+    const start = () => {
+      stop();
+      if (!mobile.matches || reduced.matches) return;
+      timer = window.setInterval(tick, MOBILE_AUTOPLAY_MS);
+    };
+
+    start();
+    mobile.addEventListener('change', start);
+    reduced.addEventListener('change', start);
+    document.addEventListener('visibilitychange', start);
+
+    return () => {
+      stop();
+      mobile.removeEventListener('change', start);
+      reduced.removeEventListener('change', start);
+      document.removeEventListener('visibilitychange', start);
+    };
+  }, []);
+
+  return (
+    <section id="reviews" className="reviews-section" aria-label="Customer stories and Google reviews">
+      <div className="container">
+        <SectionHeader
+          tag="Google Reviews"
+          title="Customer Stories"
+          highlightWord="& Feedback"
+          description="Guests from every lane — the tower, the swing, the arena, the cafe, and the kids zone."
+        />
+
+        <div className="reviews-score">
+          <div className="reviews-score-copy">
+            <GoogleGLogo className="reviews-score-g google-g-live" />
+            <span className="reviews-score-num">4.5</span>
+            <span className="reviews-score-stars" role="img" aria-label="4.5 out of 5">
+              {Array.from({ length: 5 }).map((_, index) => (
+                <Star
+                  key={index}
+                  size={13}
+                  fill="currentColor"
+                  strokeWidth={0}
+                  aria-hidden="true"
+                  className={index === 4 ? 'is-half' : undefined}
+                />
+              ))}
+            </span>
+            <span className="reviews-score-meta">3,238 Google reviews</span>
+          </div>
+          <ThemeButton
+            href={GOOGLE_REVIEWS_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            size="sm"
+            variant="ghost"
+            arrow
+          >
+            Review us
+          </ThemeButton>
+        </div>
+
+        <div className="reviews-board">
+          <button
+            type="button"
+            className="reviews-nav reviews-nav--prev"
+            onClick={() => scrollCards(-1)}
+            aria-label="Previous reviews"
+          >
+            <ChevronLeft size={20} strokeWidth={1.75} />
+          </button>
+
+          <div
+            className="reviews-scroller"
+            ref={scrollerRef}
+            onTouchStart={(event) => {
+              pausedRef.current = true;
+              touchStartX.current = event.touches[0].clientX;
+            }}
+            onTouchEnd={(event) => {
+              const delta = touchStartX.current - event.changedTouches[0].clientX;
+              if (delta > 40) scrollCards(1);
+              if (delta < -40) scrollCards(-1);
+              pausedRef.current = false;
+            }}
+          >
+            <div
+              className="reviews-track"
+              style={{ transform: `translate3d(${-offset}px, 0, 0)` }}
+            >
+            {REVIEWS_DATA.map((rev, index) => {
+              const isOpen = !!expanded[rev.id];
+              const photos = rev.photos?.slice(0, 3) ?? [];
+              const extra =
+                (rev.photos?.length ?? 0) - photos.length + (rev.overflowCount ?? 0);
+
+              return (
+                <article key={rev.id} className="review-card">
+                  <div className="review-card-top">
+                    <span className="review-card-idx">
+                      {String(index + 1).padStart(2, '0')}
+                    </span>
+                    <span className="review-card-mark">
+                      <span className="review-card-stars" role="img" aria-label={`${rev.rating} out of 5`}>
+                        {Array.from({ length: rev.rating }).map((_, star) => (
+                          <Star key={star} size={12} fill="currentColor" strokeWidth={0} aria-hidden="true" />
+                        ))}
+                      </span>
+                      <GoogleGLogo className="review-card-g" />
+                    </span>
+                  </div>
+
+                  <p className={`review-card-quote${isOpen ? ' is-open' : ''}`}>
+                    {rev.comment}
+                  </p>
+                  {rev.comment.length > 150 ? (
+                    <button
+                      type="button"
+                      className="review-card-more"
+                      onClick={() =>
+                        setExpanded((prev) => ({ ...prev, [rev.id]: !prev[rev.id] }))
+                      }
+                    >
+                      {isOpen ? 'Show less' : 'Read full review'}
+                    </button>
+                  ) : null}
+
+                  {photos.length > 0 ? (
+                    <div className="review-card-photos">
+                      {photos.map((photoUrl, photoIdx) => {
+                        const showBadge = photoIdx === photos.length - 1 && extra > 0;
+                        return (
+                          <button
+                            key={photoUrl}
+                            type="button"
+                            className="review-card-photo"
+                            onClick={() =>
+                              setLightbox({ photos: rev.photos ?? [], index: photoIdx })
+                            }
+                            aria-label={`View photo ${photoIdx + 1} from ${rev.name}`}
+                          >
+                            <Image
+                              src={photoUrl}
+                              alt={`Photo from ${rev.name} at Thrill Factory`}
+                              width={160}
+                              height={100}
+                              sizes="160px"
+                              className="review-card-photo-img"
+                            />
+                            {showBadge ? (
+                              <span className="review-card-photo-more">+{extra}</span>
+                            ) : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+
+                  <footer className="review-card-foot">
+                    {rev.avatar ? (
+                      <Image
+                        src={rev.avatar}
+                        alt={`${rev.name} at Thrill Factory`}
+                        width={36}
+                        height={36}
+                        sizes="36px"
+                        className="review-card-avatar"
+                      />
+                    ) : (
+                      <span className="review-card-initials" aria-hidden="true">
+                        {getInitials(rev.name)}
+                      </span>
+                    )}
+                    <span className="review-card-who">
+                      <span className="review-card-name">{rev.name}</span>
+                      <span className="review-card-meta">
+                        {rev.date}
+                        {rev.activity ? ` · ${rev.activity}` : ''}
+                      </span>
+                    </span>
+                  </footer>
+                </article>
+              );
+            })}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="reviews-nav reviews-nav--next"
+            onClick={() => scrollCards(1)}
+            aria-label="Next reviews"
+          >
+            <ChevronRight size={20} strokeWidth={1.75} />
+          </button>
+        </div>
+      </div>
+
+      {lightbox && lightboxSrc ? (
+        <div
+          className="review-lightbox"
+          onClick={() => setLightbox(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Enlarged review photo"
+        >
+          <button
+            type="button"
+            className="review-lightbox-close"
+            onClick={() => setLightbox(null)}
+            aria-label="Close enlarged photo"
+          >
+            <X size={22} strokeWidth={1.75} />
+          </button>
+          {lightbox.photos.length > 1 ? (
+            <button
+              type="button"
+              className="review-lightbox-nav review-lightbox-nav--prev"
+              onClick={(event) => {
+                event.stopPropagation();
+                stepLightbox(-1);
+              }}
+              aria-label="Previous photo"
+            >
+              <ChevronLeft size={22} strokeWidth={1.75} />
+            </button>
+          ) : null}
+          <Image
+            src={lightboxSrc}
+            alt="Guest photo from Thrill Factory, Rishikesh"
+            width={900}
+            height={900}
+            sizes="(max-width: 900px) 100vw, 900px"
+            className="review-lightbox-img"
+            onClick={(event) => event.stopPropagation()}
+          />
+          {lightbox.photos.length > 1 ? (
+            <button
+              type="button"
+              className="review-lightbox-nav review-lightbox-nav--next"
+              onClick={(event) => {
+                event.stopPropagation();
+                stepLightbox(1);
+              }}
+              aria-label="Next photo"
+            >
+              <ChevronRight size={22} strokeWidth={1.75} />
+            </button>
+          ) : null}
+          {lightbox.photos.length > 1 ? (
+            <span className="review-lightbox-count">
+              {lightbox.index + 1} / {lightbox.photos.length}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
+};
